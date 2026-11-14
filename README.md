@@ -4,7 +4,8 @@ Cuadrantes de pádel americano para 8, 12 o 16 jugadores, con resultados **en ti
 
 - Cada partido se juega a **3 juegos** (3-0 o 2-1; la suma no puede pasar de 3). Cada jugador suma los juegos de su pareja.
 - Botón «Exportar PDF para las pistas»: una hoja por pista con sus partidos y cuadros para anotar, más una hoja «¿En qué pista juego?».
-- Quien crea el torneo es el organizador (solo él puede borrar resultados o el torneo). El resto puede ver y apuntar resultados.
+- **Acceso:** solo el organizador (login) puede crear torneos, apuntar resultados y borrar. El enlace de un torneo es de **solo lectura**: quien lo abre ve todo en directo pero no puede editar.
+- Usuario y contraseña por defecto en `server.js` (`regue` / `Dar3ga`). Para cambiarlos sin tocar el código, crea en Railway las variables `ADMIN_USER` y `ADMIN_PASS` (y sustituye los valores por defecto del código). Tras 8 intentos fallidos el acceso se bloquea 10 minutos.
 - Los torneos con más de 30 días se borran solos.
 
 ## Estructura
@@ -28,4 +29,4 @@ npm start        # http://localhost:3000  (datos en memoria, se pierden al parar
 Las tablas se crean solas al arrancar. Si ves en los logs `(datos: postgres)`, todo está bien; si pone `(datos: memory)` falta enlazar `DATABASE_URL`.
 
 ## API (por si hace falta)
-`POST /api/t` · `GET /api/t/:id` · `PUT /api/t/:id/results/:ronda_pista` · `GET /api/t/:id/events` (SSE) · `DELETE /api/t/:id[/results]` (cabecera `x-owner`).
+`POST /api/t` · `GET /api/t/:id` · `PUT /api/t/:id/results/:ronda_pista` · `GET /api/t/:id/events` (SSE) · `DELETE /api/t/:id[/results]` (cabecera `Authorization: Bearer <token>`; las escrituras exigen el login del organizador: `POST /api/login`).

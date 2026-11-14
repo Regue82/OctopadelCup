@@ -95,11 +95,17 @@ main{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
 .live .btn{margin-left:auto;padding:8px 12px;min-height:38px;font-size:.9rem}
 @keyframes pulse{70%{box-shadow:0 0 0 8px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#1d2a24;color:#fff;padding:12px 16px;border-radius:12px;z-index:60;max-width:90vw;font-size:.92rem}
+
+.hbtn{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:8px 14px;font:inherit;font-size:.88rem;cursor:pointer;white-space:nowrap}
+.score{display:inline-flex;align-items:center;justify-content:center;width:64px;height:44px;border-radius:8px;background:rgba(255,255,255,.7);font-weight:700;font-size:1.15rem}
+.login label{display:block;font-size:.85rem;color:var(--mut);margin:10px 0 4px}
+.login input{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;font:inherit}
+.err{color:#b91c1c;font-size:.9rem;margin-top:8px;min-height:1.2em}
 @media print{header,.tabs,.row,.btn,.no-print{display:none!important}body{background:#fff}.card{border:0;padding:0}}
 </style>
 </head>
 <body>
-<header><div class="in"><div class="ball"></div><div><h1>OctopadelApp<small>Pádel americano · todos con todos</small></h1></div></div></header>
+<header><div class="in"><div class="ball"></div><div><h1>OctopadelApp<small>Pádel americano · todos con todos</small></h1></div><div id="auth" style="margin-left:auto"></div></div></header>
 <main id="app"></main>
 
 <script src="vendor/jspdf.umd.min.js"></script>
@@ -204,11 +210,13 @@ function playerName(idx){ return S.final[S.perm[idx]]; }
 function render(){
   save();
   $('#app').innerHTML = S.stage==='setup' ? setupView() : tourneyView();
-  if(S.stage==='setup') bindSetup(); else bindTourney();
+  if(S.stage==='setup'){ if(API&&!S.admin)bindLogin(); else bindSetup(); } else bindTourney();
+  renderAuth();
 }
 
 /* ---------- SETUP ---------- */
 function setupView(){
+  if(API&&!S.admin) return loginView();
   const opt=(n,c,r,m)=>`<button data-n="${n}" class="${S.n===n?'on':''}"><b>${n}</b><span>${c} pistas · ${r} rondas</span></button>`;
   let inputs='';
   for(let i=0;i<S.n;i++) inputs+=`<label>${i+1}<input data-i="${i}" value="${esc(S.names[i]||'')}" placeholder="Jugador ${i+1}" autocomplete="off"></label>`;
@@ -258,8 +266,13 @@ function tourneyView(){
     <button data-t="clasif" class="${t==='clasif'?'on':''}">Clasificación</button>
     <button data-t="balance" class="${t==='balance'?'on':''}">Equilibrio</button>
     <button data-t="ajustes" class="${t==='ajustes'?'on':''}">Ajustes</button>
-    <button id="exit" class="exit">Salir del torneo</button>
+    ${canEdit()?'<button id="exit" class="exit">Salir del torneo</button>':''}
   </div>`+(S.tid?`<div class="live"><span class="dot"></span><span>En vivo · código <b>${S.tid}</b></span><button class="btn sec" id="share">Compartir enlace</button></div>`:'') + (t==='rondas'?roundsView():t==='clasif'?rankView():t==='balance'?balanceView():settingsView());
+}
+function canEdit(){ return !S.tid || S.admin; }
+function scoreBox(k,x,val){
+  if(!canEdit()) return `<span class="score">${val===''?'–':esc(val)}</span>`;
+  return `<input type="number" inputmode="numeric" min="0" max="3" data-k="${k}" data-s="${x}" value="${val}" aria-label="Juegos pareja ${x?'B':'A'}">`;
 }
 function roundsView(){
   const sch=getSch(); let h='';
@@ -273,14 +286,14 @@ function roundsView(){
       const nm=p=>p.map(i=>esc(playerName(i))).join(' &amp; ');
       return `<div class="court" style="background:var(${bg});border-color:var(${bd})">
         <div class="t" style="color:var(${bd})">Pista ${c+1}</div>
-        <div class="team ${w0?'win':''}"><span class="n">${nm(m[0])}</span><input type="number" inputmode="numeric" min="0" max="3" data-k="${k}" data-s="0" value="${v[0]}" aria-label="Juegos pareja A"></div>
+        <div class="team ${w0?'win':''}"><span class="n">${nm(m[0])}</span>${scoreBox(k,0,v[0])}</div>
         <div class="vs">vs</div>
-        <div class="team ${w1?'win':''}"><span class="n">${nm(m[1])}</span><input type="number" inputmode="numeric" min="0" max="3" data-k="${k}" data-s="1" value="${v[1]}" aria-label="Juegos pareja B"></div>
+        <div class="team ${w1?'win':''}"><span class="n">${nm(m[1])}</span>${scoreBox(k,1,v[1])}</div>
       </div>`;
     }).join('');
     h+=`<div class="round"><h3>Ronda ${r+1} ${filled===rd.length?'<span class="done">✓ completa</span>':''}</h3><div class="courts">${courts}</div></div>`;
   });
-  return `<p class="hint no-print" style="margin-top:0">Cada partido se juega a <b>3 juegos</b>: apunta los que gana cada pareja (3–0 o 2–1). Cada jugador suma los juegos de su pareja.</p>
+  return `<p class="hint no-print" style="margin-top:0">${canEdit()?'Cada partido se juega a <b>3 juegos</b>: apunta los que gana cada pareja (3–0 o 2–1). Cada jugador suma los juegos de su pareja.':'Torneo en directo. Los resultados los apunta el organizador y aquí se actualizan solos.'}</p>
   <div class="row no-print" style="margin:0 0 14px"><button class="btn" id="pdf">Exportar PDF para las pistas</button></div>`+h;
 }
 function standings(){
@@ -326,11 +339,11 @@ function settingsView(){
       <button class="btn" id="pdf">Exportar PDF para las pistas</button>
       <button class="btn sec" id="copy">Copiar cuadrante como texto</button>
       ${S.tid?'<button class="btn sec" id="share">Compartir enlace</button>':''}
-      <button class="btn sec" id="edit">${S.tid?'Torneo nuevo':'Cambiar jugadores / nº de jugadores'}</button>
-      ${(!S.tid||ownerTok(S.tid))?'<button class="btn danger" id="clear">Borrar resultados</button>':''}
-      ${(S.tid&&ownerTok(S.tid))?'<button class="btn danger" id="deltourney">Borrar torneo del servidor</button>':''}
+      ${canEdit()?`<button class="btn sec" id="edit">${S.tid?'Torneo nuevo':'Cambiar jugadores / nº de jugadores'}</button>
+      <button class="btn danger" id="clear">Borrar resultados</button>`:''}
+      ${(S.tid&&S.admin)?'<button class="btn danger" id="deltourney">Borrar torneo del servidor</button>':''}
     </div><p class="hint" id="msg"></p>
-    <p class="hint">${S.tid?'Torneo en vivo: todos los que tengan el enlace ven los resultados al instante y pueden apuntarlos. Solo quien lo creó puede borrar resultados o el torneo.':'Modo sin conexión: los datos se guardan solo en este navegador.'}</p></div>`;
+    <p class="hint">${S.tid?'Torneo en vivo: quien tenga el enlace ve los resultados al instante. Solo el organizador (con su acceso) puede apuntarlos, borrarlos o borrar el torneo.':'Modo sin conexión: los datos se guardan solo en este navegador.'}</p></div>`;
 }
 function refreshCourt(court){
   const q=court.querySelectorAll('input'), r=[q[0].value,q[1].value];
@@ -347,10 +360,51 @@ function refreshCourt(court){
 /* ---------- MODO EN VIVO (servidor) ---------- */
 let API=false, es=null, pending=false, poll=null, inflight=0, late=false;
 const norm=r=>JSON.stringify(Object.keys(r||{}).sort().map(k=>[k,+r[k][0],+r[k][1]]));
-const OWNKEY='octopadelapp-owner';
-function owners(){ try{return JSON.parse(localStorage.getItem(OWNKEY))||{};}catch(e){return {};} }
-function ownerTok(id){ return owners()[id]||''; }
-function setOwner(id,t){ try{const o=owners();o[id]=t;localStorage.setItem(OWNKEY,JSON.stringify(o));}catch(e){} }
+const TOKKEY='octopadelapp-token';
+function getTok(){ try{return localStorage.getItem(TOKKEY)||'';}catch(e){return '';} }
+function setTok(t){ try{ if(t)localStorage.setItem(TOKKEY,t); else localStorage.removeItem(TOKKEY); }catch(e){} }
+function authH(extra){ return Object.assign({'Authorization':'Bearer '+getTok()},extra||{}); }
+function unauth(){ setTok(''); S.admin=false; toast('Sesión caducada: vuelve a entrar'); render(); }
+async function doLogin(user,pass){
+  try{
+    const r=await fetch('api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user,pass})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok) return j.error||'No se pudo entrar';
+    setTok(j.token); S.admin=true; return null;
+  }catch(e){ return 'Sin conexión con el servidor'; }
+}
+function logout(){ setTok(''); S.admin=false; if(S.tid){ render(); } else { S.stage='setup'; render(); } }
+function loginForm(){
+  return `<div class="login"><label for="lu">Usuario</label><input id="lu" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+  <label for="lp">Contraseña</label><input id="lp" type="password" autocomplete="current-password">
+  <div class="err" id="lerr"></div></div>`;
+}
+function bindLoginForm(done){
+  const go=async()=>{ const e=$('#lerr'); e.textContent=''; const err=await doLogin($('#lu').value,$('#lp').value); if(err){e.textContent=err;return;} done(); };
+  $('#lp').onkeydown=ev=>{ if(ev.key==='Enter')go(); };
+  return go;
+}
+function loginModal(){
+  const m=document.createElement('div');m.id='modal';
+  m.innerHTML='<div class="box"><h2>Acceso del organizador</h2>'+loginForm()+'<div class="row"><button class="btn" id="lok">Entrar</button><button class="btn sec" id="lno">Cancelar</button></div></div>';
+  document.body.appendChild(m);
+  const go=bindLoginForm(()=>{m.remove();render();});
+  m.querySelector('#lok').onclick=go; m.querySelector('#lno').onclick=()=>m.remove();
+  m.querySelector('#lu').focus();
+}
+function loginView(){
+  return `<div class="card"><h2>Acceso del organizador</h2>${loginForm()}
+  <div class="row"><button class="btn" id="lok">Entrar</button></div>
+  <p class="hint">Si solo quieres seguir un torneo, abre el enlace que te ha pasado el organizador: no necesitas entrar.</p></div>`;
+}
+function bindLogin(){ const go=bindLoginForm(()=>render()); $('#lok').onclick=go; }
+function renderAuth(){
+  const a=$('#auth'); if(!a)return;
+  if(!API){a.innerHTML='';return;}
+  if(S.admin){ a.innerHTML='<button class="hbtn" id="logout">Organizador · Salir</button>'; $('#logout').onclick=logout; }
+  else if(S.stage==='setup'){ a.innerHTML=''; }
+  else { a.innerHTML='<button class="hbtn" id="login">Acceso</button>'; $('#login').onclick=loginModal; }
+}
 function toast(msg){ const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3500); }
 function shareUrl(){ return location.origin+location.pathname+'#'+S.tid; }
 async function pushResult(k,a){
@@ -358,7 +412,8 @@ async function pushResult(k,a){
   const body=(a[0]===''||a[1]==='')?{a:null,b:null}:{a:+a[0],b:+a[1]};
   inflight++;
   try{
-    const r=await fetch('api/t/'+S.tid+'/results/'+k,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const r=await fetch('api/t/'+S.tid+'/results/'+k,{method:'PUT',headers:authH({'Content-Type':'application/json'}),body:JSON.stringify(body)});
+    if(r.status===401){inflight--;unauth();return;}
     if(!r.ok){const e=await r.json().catch(()=>({}));toast(e.error||'No se pudo guardar');}
   }catch(e){toast('Sin conexión: el resultado no se ha guardado');}
   inflight--; if(!inflight&&late){late=false;fetchRemote();}
@@ -400,21 +455,24 @@ async function createRemote(){
   const names=cleanNames(), perm=[...Array(S.n).keys()];
   if(S.shuffle) for(let i=perm.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[perm[i],perm[j]]=[perm[j],perm[i]];}
   try{
-    const r=await fetch('api/t',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({n:S.n,algo:S.algo,names,perm})});
+    const r=await fetch('api/t',{method:'POST',headers:authH({'Content-Type':'application/json'}),body:JSON.stringify({n:S.n,algo:S.algo,names,perm})});
+    if(r.status===401){unauth();return;}
     if(!r.ok){const e=await r.json().catch(()=>({}));toast(e.error||'No se pudo crear el torneo');return;}
-    const c=await r.json(); setOwner(c.id,c.owner);
+    const c=await r.json();
     history.replaceState(null,'',location.pathname+'#'+c.id);
     await openRemote(c.id); window.scrollTo(0,0);
   }catch(e){ toast('No se pudo conectar con el servidor'); }
 }
 async function delRemote(path){
-  try{ const r=await fetch('api/t/'+S.tid+path,{method:'DELETE',headers:{'x-owner':ownerTok(S.tid)}});
+  try{ const r=await fetch('api/t/'+S.tid+path,{method:'DELETE',headers:authH()});
+    if(r.status===401){unauth();return false;}
     if(!r.ok){const e=await r.json().catch(()=>({}));toast(e.error||'No se pudo');return false;} return true; }catch(e){toast('Sin conexión');return false;}
 }
 async function init(){
   try{ const r=await fetch('api/health',{cache:'no-store'}); API=r.ok&&(await r.json()).ok===true; }catch(e){ API=false; }
   const id=location.hash.replace('#','');
   if(API){
+    if(getTok()){ try{ const m=await fetch('api/me',{headers:authH(),cache:'no-store'}); S.admin=m.ok&&(await m.json()).admin===true; if(!S.admin)setTok(''); }catch(e){ S.admin=false; } }
     if(/^[a-z0-9]{6}$/.test(id)){ await openRemote(id); }
     else { S.tid=null; if(S.stage==='tourney'){S.stage='setup';S.final=null;S.res={};} render(); }
     window.addEventListener('hashchange',()=>{ const h=location.hash.replace('#',''); if(/^[a-z0-9]{6}$/.test(h)&&h!==S.tid)openRemote(h); });
@@ -436,7 +494,7 @@ function bindTourney(){
     save(); pushResult(k,a);
     refreshCourt(court);
   });
-  $('#exit').onclick=()=>{
+  const ex=$('#exit'); if(ex)ex.onclick=()=>{
     if(S.tid) return ask('¿Salir del torneo? Seguirá en el servidor y podrás volver con el enlace.',()=>leaveRemote(),'Salir');
     ask('¿Salir del torneo? Se borrarán el cuadrante y los resultados.',()=>{S.final=null;S.perm=null;S.res={};S.stage='setup';S.tab='rondas';render();window.scrollTo(0,0);},'Salir y borrar');
   };
