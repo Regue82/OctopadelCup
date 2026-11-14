@@ -101,6 +101,20 @@ main{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
 .login label{display:block;font-size:.85rem;color:var(--mut);margin:10px 0 4px}
 .login input{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;font:inherit}
 .err{color:#b91c1c;font-size:.9rem;margin-top:8px;min-height:1.2em}
+
+.meta{display:flex;align-items:center;gap:12px;margin:0 0 12px}
+.meta .back{background:#fff;border:1px solid var(--line);border-radius:999px;padding:9px 14px;font:inherit;cursor:pointer;white-space:nowrap}
+.meta b{display:block;line-height:1.2}.meta small{color:var(--mut)}
+.trn{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:12px 4px;border-bottom:1px solid var(--line);color:inherit;text-decoration:none}
+.trn:last-child{border-bottom:0}
+.trn small{display:block;color:var(--mut)}
+.trn .r{text-align:right;font-size:.85rem;flex:none;max-width:45%}
+.st{display:inline-block;padding:3px 9px;border-radius:999px;font-size:.75rem;font-weight:600}
+.st.live{background:#dcfce7;color:#166534}.st.fin{background:#e5e7eb;color:#374151}.st.draft{background:#fef3c7;color:#92400e}
+.champ{text-align:center;background:linear-gradient(#fff8d6,#fff)}
+.champ .trophy{font-size:2.4rem;line-height:1}.champ .cn{font-size:1.5rem;font-weight:800;margin:4px 0}
+.champ .sub{margin-top:8px;color:var(--mut);font-size:.95rem}
+.live.fin{background:#f3f4f6}
 @media print{header,.tabs,.row,.btn,.no-print{display:none!important}body{background:#fff}.card{border:0;padding:0}}
 </style>
 </head>
@@ -141,7 +155,7 @@ function exportPDF(){
     const col=rgb(hex[c]);
     doc.setFillColor(...col);doc.rect(0,0,W,26,'F');
     doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(30);doc.text('PISTA '+(c+1),14,17);
-    doc.setFontSize(11);doc.setFont('helvetica','normal');doc.text('OctopadelApp · Americano de '+n+' jugadores',W-14,16,{align:'right'});
+    doc.setFontSize(11);doc.setFont('helvetica','normal');doc.text(fit((S.t&&S.t.name?S.t.name+' · ':'')+'Americano de '+n+' jugadores',125,11),W-14,16,{align:'right'});
     const top=36, bot=272, rh=Math.min(20,(bot-top-10)/sch.length);
     doc.setTextColor(90);doc.setFontSize(9);doc.setFont('helvetica','bold');
     doc.text('RONDA',14,top);doc.text('PAREJA A',38,top);doc.text('PAREJA B',104,top);doc.text('JUEGOS',W-14,top,{align:'right'});
@@ -207,23 +221,99 @@ function cleanNames(){
 function getSch(n){ n=n||S.n; return (n===12&&S.used==='padel12')?SCHEDULE_12_PADEL12:SCHEDULES[n]; }
 function playerName(idx){ return S.final[S.perm[idx]]; }
 
+function fmtDate(d){ if(!d)return ''; const p=d.split('-'); return new Date(+p[0],+p[1]-1,+p[2]).toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'}); }
+function today(){ return new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10); }
+function metaBar(){
+  if(!(API&&S.tid&&S.t))return '';
+  return `<div class="meta"><button class="back" id="home">← Torneos</button><div><b>${esc(S.t.name)}</b><small>${fmtDate(S.t.date)}${S.t.place?' · '+esc(S.t.place):''}</small></div></div>`;
+}
 function render(){
   save();
-  $('#app').innerHTML = S.stage==='setup' ? setupView() : tourneyView();
-  if(S.stage==='setup'){ if(API&&!S.admin)bindLogin(); else bindSetup(); } else bindTourney();
+  const v={home:homeView,new:newView,setup:setupView,wait:waitView}[S.stage]||tourneyView;
+  $('#app').innerHTML=v();
+  ({home:bindHome,new:bindNew,setup:bindSetup,wait:bindWait}[S.stage]||bindTourney)();
+  const h=$('#home'); if(h)h.onclick=goHome;
   renderAuth();
+}
+
+/* ---------- INICIO: histórico, nuevo torneo ---------- */
+function champ(t){ return t.status==='finished'&&t.standings&&t.standings[0]?t.standings[0].name:''; }
+function homeView(){
+  const L=S.list;
+  const item=t=>`<a class="trn" href="#${t.id}"><div><b>${esc(t.name||'Torneo sin nombre')}</b><small>${fmtDate(t.date)}${t.place?' · '+esc(t.place):''}</small></div>
+    <div class="r">${t.status==='finished'?'<span class="st fin">Finalizado</span><br>🏆 '+esc(champ(t)):t.status==='draft'?'<span class="st draft">Borrador</span>':'<span class="st live">En juego</span>'}</div></a>`;
+  return `<div class="card"><div class="row" style="margin:0 0 6px;justify-content:space-between"><h2 style="margin:0">Torneos</h2>${S.admin?'<button class="btn" id="newt">Nuevo torneo</button>':''}</div>
+  ${L===null?'<p class="hint">Cargando…</p>':L.length?L.map(item).join(''):'<p class="hint">Todavía no hay torneos.'+(S.admin?'':' El organizador puede entrar con «Acceso» para crear el primero.')+'</p>'}</div>`;
+}
+function bindHome(){ const n=$('#newt'); if(n)n.onclick=()=>{ S.stage='new'; render(); window.scrollTo(0,0); }; }
+async function loadList(){
+  try{ const r=await fetch('api/t',{cache:'no-store'}); if(r.ok){ S.list=(await r.json()).tournaments; } else if(S.list===null)S.list=[]; }catch(e){ if(S.list===null)S.list=[]; toast('No se pudo cargar la lista'); }
+  if(S.stage==='home')render();
+}
+function infoForm(f){
+  return `<div class="login"><label for="fn">Nombre del torneo</label><input id="fn" maxlength="80" value="${esc(f.name)}" placeholder="p. ej. 4º Octo Padel Cup" autocomplete="off">
+  <label for="fd">Fecha</label><input id="fd" type="date" value="${esc(f.date)}">
+  <label for="fp">Lugar (opcional)</label><input id="fp" maxlength="80" value="${esc(f.place)}" placeholder="p. ej. Club de pádel" autocomplete="off"><div class="err" id="ferr"></div></div>`;
+}
+function readInfo(){ return {name:$('#fn').value.trim(),date:$('#fd').value,place:$('#fp').value.trim()}; }
+function newView(){
+  let place=''; try{place=localStorage.getItem('octopadelapp-place')||'';}catch(e){}
+  return `<div class="card"><h2>Nuevo torneo</h2>${infoForm({name:'',date:today(),place})}
+  <p class="hint">¿Un torneo antiguo? Pon su fecha real: después generas el cuadrante, cargas los resultados y lo finalizas para que quede en el histórico.</p>
+  <div class="row"><button class="btn" id="create">Crear torneo</button><button class="btn sec" id="cancel">Cancelar</button></div></div>`;
+}
+function bindNew(){
+  $('#cancel').onclick=()=>{S.stage='home';render();};
+  $('#create').onclick=async()=>{
+    const f=readInfo(), e=$('#ferr'); e.textContent='';
+    if(!f.name){e.textContent='Pon un nombre al torneo';return;} if(!f.date){e.textContent='Pon la fecha';return;}
+    try{
+      const r=await fetch('api/t',{method:'POST',headers:authH({'Content-Type':'application/json'}),body:JSON.stringify(f)});
+      if(r.status===401){unauth();return;}
+      const j=await r.json().catch(()=>({})); if(!r.ok){e.textContent=j.error||'No se pudo crear';return;}
+      try{localStorage.setItem('octopadelapp-place',f.place);}catch(x){}
+      history.replaceState(null,'',location.pathname+'#'+j.id); await openRemote(j.id); window.scrollTo(0,0);
+    }catch(x){ e.textContent='Sin conexión con el servidor'; }
+  };
+}
+function waitView(){ return metaBar()+`<div class="card"><h2>Torneo en preparación</h2><p class="hint">El organizador aún no ha generado el cuadrante. Esta página se actualizará sola cuando esté listo.</p></div>`; }
+function bindWait(){}
+function editInfoModal(){
+  const m=document.createElement('div');m.id='modal';
+  m.innerHTML='<div class="box"><h2>Datos del torneo</h2>'+infoForm(S.t)+'<div class="row"><button class="btn" id="iok">Guardar</button><button class="btn sec" id="ino">Cancelar</button></div></div>';
+  document.body.appendChild(m);
+  m.querySelector('#ino').onclick=()=>m.remove();
+  m.querySelector('#iok').onclick=async()=>{
+    const f=readInfo(), e=m.querySelector('#ferr'); if(!f.name){e.textContent='Pon un nombre al torneo';return;} if(!f.date){e.textContent='Pon la fecha';return;}
+    const r=await fetch('api/t/'+S.tid+'/info',{method:'PUT',headers:authH({'Content-Type':'application/json'}),body:JSON.stringify(f)}).catch(()=>null);
+    if(!r){e.textContent='Sin conexión';return;} if(r.status===401){m.remove();unauth();return;}
+    if(!r.ok){e.textContent=(await r.json().catch(()=>({}))).error||'No se pudo guardar';return;}
+    m.remove(); fetchRemote();
+  };
+}
+async function postStatus(path,body,msg){
+  try{
+    const r=await fetch('api/t/'+S.tid+path,{method:'POST',headers:authH({'Content-Type':'application/json'}),body:JSON.stringify(body||{})});
+    if(r.status===401){unauth();return;}
+    if(!r.ok){toast((await r.json().catch(()=>({}))).error||'No se pudo');return;}
+    toast(msg); await fetchRemote();
+  }catch(e){toast('Sin conexión');}
+}
+function finishTournament(){
+  const st=standings().map(p=>({name:p.name,pts:p.pts,pj:p.pj,w:p.w,dif:p.pts-p.against}));
+  const missing=getSch().reduce((a,rd,r)=>a+rd.filter((m,c)=>!S.res[r+'_'+c]).length,0);
+  ask((missing?'Faltan '+missing+' partidos por apuntar. ':'')+'¿Finalizar el torneo? Se guarda la clasificación y no se podrán cambiar resultados (puedes reabrirlo desde Ajustes).',async()=>{ S.tab='clasif'; await postStatus('/finish',{standings:st},'Torneo finalizado'); },'Finalizar');
 }
 
 /* ---------- SETUP ---------- */
 function setupView(){
-  if(API&&!S.admin) return loginView();
   const opt=(n,c,r,m)=>`<button data-n="${n}" class="${S.n===n?'on':''}"><b>${n}</b><span>${c} pistas · ${r} rondas</span></button>`;
   let inputs='';
   for(let i=0;i<S.n;i++) inputs+=`<label>${i+1}<input data-i="${i}" value="${esc(S.names[i]||'')}" placeholder="Jugador ${i+1}" autocomplete="off"></label>`;
   const note = S.n===12
     ? 'Con 12 jugadores hay dos algoritmos para comparar: elige abajo cuál usar.'
     : 'Reparto perfecto: nadie repite pareja y cada rival se enfrenta exactamente 2 veces.';
-  return `
+  return metaBar()+`
   <div class="card"><h2>1. ¿Cuántos jugáis?</h2>
     <div class="seg" id="seg">${opt(8,2,7)}${opt(12,3,11)}${opt(16,4,15)}</div>
     <p class="hint">${note}</p>
@@ -235,7 +325,7 @@ function setupView(){
     <div class="row"><label class="chk"><input type="checkbox" id="shuf" ${S.shuffle?'checked':''}> Sorteo aleatorio de posiciones</label></div>
     <p class="hint">Sin sorteo, el cuadrante respeta el orden de la lista (igual que el Excel). Los nombres vacíos se rellenan como «Jugador N».</p>
     <div class="row"><button class="btn" id="go">Generar cuadrantes</button>
-    ${S.final?'<button class="btn sec" id="back">Volver al torneo</button>':''}</div></div>`;
+    ${(!API&&S.final)?'<button class="btn sec" id="back">Volver al torneo</button>':''}</div></div>`;
 }
 function bindSetup(){
   document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{ readNames(); S.n=+b.dataset.n; render(); });
@@ -243,11 +333,11 @@ function bindSetup(){
   $('#shuf').onchange=e=>{S.shuffle=e.target.checked;save();};
   $('#go').onclick=()=>{
     readNames();
-    if(S.final && Object.keys(S.res).length){ ask('Ya hay resultados guardados. Si generas un torneo nuevo se borrarán. ¿Continuar?', start, 'Generar y borrar'); return; }
+    if(!API&&S.final && Object.keys(S.res).length){ ask('Ya hay resultados guardados. Si generas un torneo nuevo se borrarán. ¿Continuar?', start, 'Generar y borrar'); return; }
     start();
   };
   function start(){
-    if(API){ createRemote(); return; }
+    if(API){ setupRemote(); return; }
     S.final=cleanNames();
     const p=[...Array(S.n).keys()];
     if(S.shuffle) for(let i=p.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[p[i],p[j]]=[p[j],p[i]];}
@@ -260,16 +350,16 @@ function readNames(){ document.querySelectorAll('#names input').forEach(i=>S.nam
 /* ---------- TOURNAMENT ---------- */
 function tourneyView(){
   const t=S.tab;
-  return `
+  return metaBar()+`
   <div class="tabs">
     <button data-t="rondas" class="${t==='rondas'?'on':''}">Rondas</button>
     <button data-t="clasif" class="${t==='clasif'?'on':''}">Clasificación</button>
     <button data-t="balance" class="${t==='balance'?'on':''}">Equilibrio</button>
     <button data-t="ajustes" class="${t==='ajustes'?'on':''}">Ajustes</button>
-    ${canEdit()?'<button id="exit" class="exit">Salir del torneo</button>':''}
-  </div>`+(S.tid?`<div class="live"><span class="dot"></span><span>En vivo · código <b>${S.tid}</b></span><button class="btn sec" id="share">Compartir enlace</button></div>`:'') + (t==='rondas'?roundsView():t==='clasif'?rankView():t==='balance'?balanceView():settingsView());
+    ${!S.tid?'<button id="exit" class="exit">Salir del torneo</button>':''}
+  </div>`+(S.tid?(S.t&&S.t.status==='finished'?`<div class="live fin"><span>🏁 Torneo finalizado</span><button class="btn sec" id="share">Compartir enlace</button></div>`:`<div class="live"><span class="dot"></span><span>En vivo</span><button class="btn sec" id="share">Compartir enlace</button></div>`):'') + (t==='rondas'?roundsView():t==='clasif'?rankView():t==='balance'?balanceView():settingsView());
 }
-function canEdit(){ return !S.tid || S.admin; }
+function canEdit(){ return !S.tid || (S.admin && S.t && S.t.status==='live'); }
 function scoreBox(k,x,val){
   if(!canEdit()) return `<span class="score">${val===''?'–':esc(val)}</span>`;
   return `<input type="number" inputmode="numeric" min="0" max="3" data-k="${k}" data-s="${x}" value="${val}" aria-label="Juegos pareja ${x?'B':'A'}">`;
@@ -293,7 +383,7 @@ function roundsView(){
     }).join('');
     h+=`<div class="round"><h3>Ronda ${r+1} ${filled===rd.length?'<span class="done">✓ completa</span>':''}</h3><div class="courts">${courts}</div></div>`;
   });
-  return `<p class="hint no-print" style="margin-top:0">${canEdit()?'Cada partido se juega a <b>3 juegos</b>: apunta los que gana cada pareja (3–0 o 2–1). Cada jugador suma los juegos de su pareja.':'Torneo en directo. Los resultados los apunta el organizador y aquí se actualizan solos.'}</p>
+  return `<p class="hint no-print" style="margin-top:0">${canEdit()?'Cada partido se juega a <b>3 juegos</b>: apunta los que gana cada pareja (3–0 o 2–1). Cada jugador suma los juegos de su pareja.':(S.t&&S.t.status==='finished'?'Torneo finalizado. Aquí están todos los resultados.':'Torneo en directo. Los resultados los apunta el organizador y aquí se actualizan solos.')}</p>
   <div class="row no-print" style="margin:0 0 14px"><button class="btn" id="pdf">Exportar PDF para las pistas</button></div>`+h;
 }
 function standings(){
@@ -309,10 +399,13 @@ function standings(){
   return st;
 }
 function rankView(){
-  const st=standings();
-  const rows=st.map((p,k)=>`<tr class="${k<3&&p.pj?'top'+(k+1):''}"><td class="pos">${k+1}º</td><td>${esc(p.name)}</td><td class="num"><b>${p.pts}</b></td><td class="num">${p.pj}</td><td class="num">${p.w}</td><td class="num">${p.pts-p.against>0?'+':''}${p.pts-p.against}</td></tr>`).join('');
-  return `<div class="card"><h2>Clasificación</h2><table><thead><tr><th></th><th>Jugador</th><th class="num">Pts</th><th class="num" title="Partidos jugados">PJ</th><th class="num" title="Partidos ganados">PG</th><th class="num" title="Diferencia de juegos">Dif</th></tr></thead><tbody>${rows}</tbody></table>
-  <p class="legend">Pts = juegos ganados. PJ = partidos jugados, PG = partidos ganados, Dif = diferencia de juegos. Desempate: Dif, PG y nombre.</p></div>`;
+  const fin=S.t&&S.t.status==='finished'&&S.t.standings;
+  const st=fin?S.t.standings:standings().map(p=>({name:p.name,pts:p.pts,pj:p.pj,w:p.w,dif:p.pts-p.against}));
+  const podium=fin?`<div class="card champ"><div class="trophy">🏆</div><div class="cn">${esc(st[0].name)}</div><div>${st[0].pts} puntos</div>
+    <div class="sub">${st[1]?'🥈 '+esc(st[1].name)+' · '+st[1].pts:''}${st[2]?' &nbsp;&nbsp; 🥉 '+esc(st[2].name)+' · '+st[2].pts:''}</div></div>`:'';
+  const rows=st.map((p,k)=>`<tr class="${k<3&&p.pj?'top'+(k+1):''}"><td class="pos">${k+1}º</td><td>${esc(p.name)}</td><td class="num"><b>${p.pts}</b></td><td class="num">${p.pj}</td><td class="num">${p.w}</td><td class="num">${p.dif>0?'+':''}${p.dif}</td></tr>`).join('');
+  return podium+`<div class="card"><h2>Clasificación</h2><table><thead><tr><th></th><th>Jugador</th><th class="num">Pts</th><th class="num" title="Partidos jugados">PJ</th><th class="num" title="Partidos ganados">PG</th><th class="num" title="Diferencia de juegos">Dif</th></tr></thead><tbody>${rows}</tbody></table>
+  <p class="legend">Pts = juegos ganados. PJ = partidos jugados, PG = partidos ganados, Dif = diferencia de juegos. Desempate: Dif, PG y nombre.</p>${(S.tid&&S.admin&&S.t&&S.t.status==='live')?'<div class="row"><button class="btn" id="finish">Finalizar torneo</button></div>':''}</div>`;
 }
 function balanceView(){
   const n=S.n, sch=getSch(n);
@@ -339,11 +432,14 @@ function settingsView(){
       <button class="btn" id="pdf">Exportar PDF para las pistas</button>
       <button class="btn sec" id="copy">Copiar cuadrante como texto</button>
       ${S.tid?'<button class="btn sec" id="share">Compartir enlace</button>':''}
-      ${canEdit()?`<button class="btn sec" id="edit">${S.tid?'Torneo nuevo':'Cambiar jugadores / nº de jugadores'}</button>
-      <button class="btn danger" id="clear">Borrar resultados</button>`:''}
-      ${(S.tid&&S.admin)?'<button class="btn danger" id="deltourney">Borrar torneo del servidor</button>':''}
+      ${(canEdit()&&!S.tid)?'<button class="btn sec" id="edit">Cambiar jugadores / nº de jugadores</button>':''}
+      ${(S.tid&&S.admin&&S.t&&S.t.status==='live')?'<button class="btn" id="finish">Finalizar torneo</button>':''}
+      ${(S.tid&&S.admin&&S.t&&S.t.status==='finished')?'<button class="btn sec" id="reopen">Reabrir torneo</button>':''}
+      ${(S.tid&&S.admin)?'<button class="btn sec" id="editinfo">Editar nombre, fecha y lugar</button>':''}
+      ${canEdit()?'<button class="btn danger" id="clear">Borrar resultados</button>':''}
+      ${(S.tid&&S.admin)?'<button class="btn danger" id="deltourney">Borrar torneo</button>':''}
     </div><p class="hint" id="msg"></p>
-    <p class="hint">${S.tid?'Torneo en vivo: quien tenga el enlace ve los resultados al instante. Solo el organizador (con su acceso) puede apuntarlos, borrarlos o borrar el torneo.':'Modo sin conexión: los datos se guardan solo en este navegador.'}</p></div>`;
+    <p class="hint">${S.tid?'Quien tenga el enlace ve el torneo al instante. Solo el organizador (con su acceso) puede apuntar resultados, finalizar o borrar el torneo. Los torneos finalizados quedan en el histórico.':'Modo sin conexión: los datos se guardan solo en este navegador.'}</p></div>`;
 }
 function refreshCourt(court){
   const q=court.querySelectorAll('input'), r=[q[0].value,q[1].value];
@@ -373,7 +469,7 @@ async function doLogin(user,pass){
     setTok(j.token); S.admin=true; return null;
   }catch(e){ return 'Sin conexión con el servidor'; }
 }
-function logout(){ setTok(''); S.admin=false; if(S.tid){ render(); } else { S.stage='setup'; render(); } }
+function logout(){ setTok(''); S.admin=false; if(S.stage==='new'){ goHome(); return; } if(S.stage==='setup')S.stage='wait'; render(); }
 function loginForm(){
   return `<div class="login"><label for="lu">Usuario</label><input id="lu" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
   <label for="lp">Contraseña</label><input id="lp" type="password" autocomplete="current-password">
@@ -388,21 +484,14 @@ function loginModal(){
   const m=document.createElement('div');m.id='modal';
   m.innerHTML='<div class="box"><h2>Acceso del organizador</h2>'+loginForm()+'<div class="row"><button class="btn" id="lok">Entrar</button><button class="btn sec" id="lno">Cancelar</button></div></div>';
   document.body.appendChild(m);
-  const go=bindLoginForm(()=>{m.remove();render();});
+  const go=bindLoginForm(()=>{m.remove(); if(S.stage==='wait')S.stage='setup'; render();});
   m.querySelector('#lok').onclick=go; m.querySelector('#lno').onclick=()=>m.remove();
   m.querySelector('#lu').focus();
 }
-function loginView(){
-  return `<div class="card"><h2>Acceso del organizador</h2>${loginForm()}
-  <div class="row"><button class="btn" id="lok">Entrar</button></div>
-  <p class="hint">Si solo quieres seguir un torneo, abre el enlace que te ha pasado el organizador: no necesitas entrar.</p></div>`;
-}
-function bindLogin(){ const go=bindLoginForm(()=>render()); $('#lok').onclick=go; }
 function renderAuth(){
   const a=$('#auth'); if(!a)return;
   if(!API){a.innerHTML='';return;}
   if(S.admin){ a.innerHTML='<button class="hbtn" id="logout">Organizador · Salir</button>'; $('#logout').onclick=logout; }
-  else if(S.stage==='setup'){ a.innerHTML=''; }
   else { a.innerHTML='<button class="hbtn" id="login">Acceso</button>'; $('#login').onclick=loginModal; }
 }
 function toast(msg){ const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3500); }
@@ -418,9 +507,16 @@ async function pushResult(k,a){
   }catch(e){toast('Sin conexión: el resultado no se ha guardado');}
   inflight--; if(!inflight&&late){late=false;fetchRemote();}
 }
+const sigOf=(res,m,len)=>JSON.stringify([norm(res),m.status,m.name,m.date,m.place,len,m.standings?m.standings.length:0]);
 function applyRemote(t){
-  S.n=t.n;S.final=t.names;S.perm=t.perm;S.used=t.algo;S.res=t.res&&Object.fromEntries(Object.entries(t.res).map(([k,v])=>[k,[String(v[0]),String(v[1])]]))||{};
-  S.stage='tourney';
+  const prev=S.stage;
+  S.t={name:t.name,date:t.date,place:t.place,status:t.status,standings:t.standings};
+  const hasGrid=t.status!=='draft'&&t.names&&t.names.length;
+  if(hasGrid){
+    S.n=t.n;S.final=t.names;S.perm=t.perm;S.used=t.algo;
+    S.res=t.res&&Object.fromEntries(Object.entries(t.res).map(([k,v])=>[k,[String(v[0]),String(v[1])]]))||{};
+    S.stage='tourney';
+  } else { S.final=null; S.res={}; S.stage=S.admin?'setup':'wait'; if(prev==='setup'&&S.stage==='setup')return; }
   const ae=document.activeElement;
   if(ae&&ae.closest&&ae.closest('.court')){pending=true;return;}
   const y=window.scrollY;render();window.scrollTo(0,y);
@@ -431,7 +527,7 @@ async function fetchRemote(){
   try{
     const r=await fetch('api/t/'+S.tid,{cache:'no-store'});
     if(r.status===404){ leaveRemote(); toast('Ese torneo ya no existe'); return; }
-    if(r.ok){ const t=await r.json(); if(inflight){late=true;return;} if(norm(t.res)!==norm(S.res)) applyRemote(t); }
+    if(r.ok){ const t=await r.json(); if(inflight){late=true;return;} if(sigOf(t.res,t,(t.names||[]).length)!==sigOf(S.res,S.t||{},(S.final||[]).length)) applyRemote(t); }
     setLive(true);
   }catch(e){ setLive(false); }
 }
@@ -443,24 +539,23 @@ function connect(){
   poll=setInterval(fetchRemote,10000);
 }
 function disconnect(){ if(es){es.close();es=null;} if(poll){clearInterval(poll);poll=null;} }
-function leaveRemote(){ disconnect(); S.tid=null;S.final=null;S.perm=null;S.res={};S.stage='setup';S.tab='rondas'; history.replaceState(null,'',location.pathname); render(); window.scrollTo(0,0); }
+function goHome(){ disconnect(); S.tid=null;S.t=null;S.final=null;S.perm=null;S.res={};S.stage='home';S.tab='rondas'; history.replaceState(null,'',location.pathname); render(); loadList(); window.scrollTo(0,0); }
+function leaveRemote(){ goHome(); }
 async function openRemote(id){
   try{
     const r=await fetch('api/t/'+id,{cache:'no-store'});
-    if(!r.ok){ toast('No existe el torneo '+id); history.replaceState(null,'',location.pathname); S.tid=null; S.stage='setup'; render(); return; }
-    const t=await r.json(); S.tid=id; applyRemote(t); S.tab='rondas'; render(); connect();
+    if(!r.ok){ toast('No existe el torneo '+id); goHome(); return; }
+    const t=await r.json(); S.tid=id; S.tab=t.status==='finished'?'clasif':'rondas'; applyRemote(t); render(); connect();
   }catch(e){ toast('No se pudo conectar con el servidor'); render(); }
 }
-async function createRemote(){
+async function setupRemote(){
   const names=cleanNames(), perm=[...Array(S.n).keys()];
   if(S.shuffle) for(let i=perm.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[perm[i],perm[j]]=[perm[j],perm[i]];}
   try{
-    const r=await fetch('api/t',{method:'POST',headers:authH({'Content-Type':'application/json'}),body:JSON.stringify({n:S.n,algo:S.algo,names,perm})});
+    const r=await fetch('api/t/'+S.tid+'/setup',{method:'PUT',headers:authH({'Content-Type':'application/json'}),body:JSON.stringify({n:S.n,algo:S.algo,names,perm})});
     if(r.status===401){unauth();return;}
-    if(!r.ok){const e=await r.json().catch(()=>({}));toast(e.error||'No se pudo crear el torneo');return;}
-    const c=await r.json();
-    history.replaceState(null,'',location.pathname+'#'+c.id);
-    await openRemote(c.id); window.scrollTo(0,0);
+    if(!r.ok){toast((await r.json().catch(()=>({}))).error||'No se pudo generar el cuadrante');return;}
+    await openRemote(S.tid); window.scrollTo(0,0);
   }catch(e){ toast('No se pudo conectar con el servidor'); }
 }
 async function delRemote(path){
@@ -473,9 +568,10 @@ async function init(){
   const id=location.hash.replace('#','');
   if(API){
     if(getTok()){ try{ const m=await fetch('api/me',{headers:authH(),cache:'no-store'}); S.admin=m.ok&&(await m.json()).admin===true; if(!S.admin)setTok(''); }catch(e){ S.admin=false; } }
+    S.list=null;
     if(/^[a-z0-9]{6}$/.test(id)){ await openRemote(id); }
-    else { S.tid=null; if(S.stage==='tourney'){S.stage='setup';S.final=null;S.res={};} render(); }
-    window.addEventListener('hashchange',()=>{ const h=location.hash.replace('#',''); if(/^[a-z0-9]{6}$/.test(h)&&h!==S.tid)openRemote(h); });
+    else { S.tid=null; S.t=null; goHome(); }
+    window.addEventListener('hashchange',()=>{ const h=location.hash.replace('#',''); if(/^[a-z0-9]{6}$/.test(h)){ if(h!==S.tid)openRemote(h); } else if(S.tid)goHome(); });
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden)fetchRemote(); });
   } else { S.tid=null; render(); }
 }
@@ -503,9 +599,12 @@ function bindTourney(){
     try{ if(navigator.share){ await navigator.share({title:'OctopadelApp',text:'Sigue el torneo en directo',url}); return; } }catch(e){ if(e&&e.name==='AbortError')return; }
     try{ await navigator.clipboard.writeText(url); toast('Enlace copiado'); }catch(e){ if(msg)msg.textContent='Copia este enlace: '+url; }
   };
-  const dt=$('#deltourney'); if(dt)dt.onclick=()=>ask('¿Borrar el torneo del servidor para todos?',async()=>{ if(await delRemote('')) leaveRemote(); },'Borrar torneo');
+  const dt=$('#deltourney'); if(dt)dt.onclick=()=>ask('¿Borrar este torneo y todos sus resultados para siempre?',async()=>{ if(await delRemote('')) leaveRemote(); },'Borrar torneo');
   const pb=$('#pdf'); if(pb)pb.onclick=exportPDF;
-  const e=$('#edit'); if(e)e.onclick=()=>{ if(S.tid){leaveRemote();return;} S.stage='setup';render();};
+  const e=$('#edit'); if(e)e.onclick=()=>{ S.stage='setup';render();};
+  const fn=$('#finish'); if(fn)fn.onclick=finishTournament;
+  const ro=$('#reopen'); if(ro)ro.onclick=()=>ask('¿Reabrir el torneo? Se podrán volver a editar los resultados.',()=>postStatus('/reopen',{},'Torneo reabierto'),'Reabrir');
+  const ei=$('#editinfo'); if(ei)ei.onclick=editInfoModal;
   const c=$('#clear'); if(c)c.onclick=()=>{ ask('¿Borrar todos los resultados?',async()=>{ if(S.tid){ if(!(await delRemote('/results')))return; } S.res={};render();},'Borrar'); };
   const cp=$('#copy'); if(cp)cp.onclick=()=>{
     const sch=getSch(); let t='PÁDEL AMERICANO · '+S.n+' jugadores\n';

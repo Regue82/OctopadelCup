@@ -45,15 +45,16 @@ function createServer(store) {
       fails.delete(ip); return json(res, 200, { token: mkToken() });
     }
     if (req.method === 'GET' && parts[1] === 'me') return json(res, 200, { admin: isAdmin(req) });
+    const text = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
+    const validDate = d => /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d));
+    if (req.method === 'GET' && parts[1] === 't' && parts.length === 2) return json(res, 200, { tournaments: await store.list() });
     if (req.method === 'POST' && parts[1] === 't' && parts.length === 2) {
       if (!isAdmin(req)) return json(res, 401, { error: 'Solo el organizador puede crear torneos' });
-      const b = await body(req);
-      const n = b.n, algo = b.algo === 'padel12' && n === 12 ? 'padel12' : 'mio';
-      if (![8, 12, 16].includes(n)) return json(res, 400, { error: 'n inválido' });
-      if (!Array.isArray(b.names) || b.names.length !== n || !b.names.every(x => typeof x === 'string' && x.length >= 1 && x.length <= 40)) return json(res, 400, { error: 'nombres inválidos' });
-      if (!Array.isArray(b.perm) || b.perm.length !== n || [...b.perm].sort((x, y) => x - y).some((v, i) => v !== i)) return json(res, 400, { error: 'perm inválido' });
+      const b = await body(req), name = text(b.name, 80), date = text(b.date, 10), place = text(b.place, 80);
+      if (!name) return json(res, 400, { error: 'Pon un nombre al torneo' });
+      if (!validDate(date)) return json(res, 400, { error: 'Fecha inválida' });
       const id = newId();
-      await store.create({ id, n, algo, names: b.names, perm: b.perm }, 'admin');
+      await store.create({ id, name, date, place, status: 'draft', n: 16, algo: 'mio', names: [], perm: [] }, 'admin');
       return json(res, 201, { id });
     }
     const id = parts[2];
@@ -71,9 +72,42 @@ function createServer(store) {
       req.on('close', () => { clearInterval(hb); const s = listeners.get(id); if (s) { s.delete(res); if (!s.size) listeners.delete(id); } });
       return;
     }
+    if (req.method === 'PUT' && parts[3] === 'setup') {
+      if (!isAdmin(req)) return json(res, 401, { error: 'Solo el organizador puede generar el cuadrante' });
+      const t = await store.get(id); if (!t) return json(res, 404, { error: 'No existe ese torneo' });
+      if (t.status !== 'draft') return json(res, 409, { error: 'El cuadrante ya está generado' });
+      const b = await body(req), n = b.n, algo = b.algo === 'padel12' && n === 12 ? 'padel12' : 'mio';
+      if (![8, 12, 16].includes(n)) return json(res, 400, { error: 'n inválido' });
+      if (!Array.isArray(b.names) || b.names.length !== n || !b.names.every(x => typeof x === 'string' && x.length >= 1 && x.length <= 40)) return json(res, 400, { error: 'nombres inválidos' });
+      if (!Array.isArray(b.perm) || b.perm.length !== n || [...b.perm].sort((x, y) => x - y).some((v, i) => v !== i)) return json(res, 400, { error: 'perm inválido' });
+      await store.setup(id, { n, algo, names: b.names, perm: b.perm }); broadcast(id); return json(res, 200, { ok: true });
+    }
+    if (req.method === 'PUT' && parts[3] === 'info') {
+      if (!isAdmin(req)) return json(res, 401, { error: 'Solo el organizador puede editar' });
+      const t = await store.get(id); if (!t) return json(res, 404, { error: 'No existe ese torneo' });
+      const b = await body(req), name = text(b.name, 80), date = text(b.date, 10), place = text(b.place, 80);
+      if (!name) return json(res, 400, { error: 'Pon un nombre al torneo' });
+      if (!validDate(date)) return json(res, 400, { error: 'Fecha inválida' });
+      await store.setInfo(id, { name, date, place }); broadcast(id); return json(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && (parts[3] === 'finish' || parts[3] === 'reopen')) {
+      if (!isAdmin(req)) return json(res, 401, { error: 'Solo el organizador puede hacer esto' });
+      const t = await store.get(id); if (!t) return json(res, 404, { error: 'No existe ese torneo' });
+      if (parts[3] === 'reopen') {
+        if (t.status !== 'finished') return json(res, 409, { error: 'El torneo no está finalizado' });
+        await store.setStatus(id, 'live', null); broadcast(id); return json(res, 200, { ok: true });
+      }
+      if (t.status !== 'live') return json(res, 409, { error: 'El torneo no está en juego' });
+      const b = await body(req), st = b.standings;
+      const okRow = r => r && typeof r.name === 'string' && r.name.length <= 40 && [r.pts, r.pj, r.w].every(v => isInt(v, 0, 999)) && isInt(r.dif, -999, 999);
+      if (!Array.isArray(st) || st.length !== t.n || !st.every(okRow)) return json(res, 400, { error: 'clasificación inválida' });
+      await store.setStatus(id, 'finished', st.map(r => ({ name: r.name, pts: r.pts, pj: r.pj, w: r.w, dif: r.dif })));
+      broadcast(id); return json(res, 200, { ok: true });
+    }
     if (req.method === 'PUT' && parts[3] === 'results' && parts[4]) {
       if (!isAdmin(req)) return json(res, 401, { error: 'Solo el organizador puede apuntar resultados' });
       const t = await store.get(id); if (!t) return json(res, 404, { error: 'No existe ese torneo' });
+      if (t.status !== 'live') return json(res, 409, { error: t.status === 'finished' ? 'El torneo está finalizado' : 'El torneo aún no tiene cuadrante' });
       const m = /^(\d+)_(\d+)$/.exec(parts[4]);
       if (!m || +m[1] >= t.n - 1 || +m[2] >= t.n / 4) return json(res, 400, { error: 'partido inválido' });
       const b = await body(req);
@@ -84,7 +118,7 @@ function createServer(store) {
     }
     if (req.method === 'DELETE') {
       if (!isAdmin(req)) return json(res, 401, { error: 'Solo el organizador puede hacer esto' });
-      if (parts[3] === 'results') { await store.clearResults(id); broadcast(id); return json(res, 200, { ok: true }); }
+      if (parts[3] === 'results') { const t = await store.get(id); if (!t || t.status !== 'live') return json(res, 409, { error: 'El torneo no está en juego' }); await store.clearResults(id); broadcast(id); return json(res, 200, { ok: true }); }
       if (parts.length === 3) { await store.remove(id); broadcast(id); return json(res, 200, { ok: true }); }
     }
     return json(res, 404, { error: 'no encontrado' });
@@ -112,7 +146,7 @@ module.exports = { createServer };
 if (require.main === module) {
   const store = createStore();
   store.init().then(async () => {
-    try { await store.purge(30); } catch (e) { /* limpieza opcional */ }
+    try { await store.purgeDrafts(7); } catch (e) { /* limpieza opcional */ }
     const port = process.env.PORT || 3000;
     createServer(store).listen(port, '0.0.0.0', () => console.log('OctopadelApp en el puerto ' + port + ' (datos: ' + store.kind + ')'));
   }).catch(e => { console.error('No se pudo iniciar el almacén de datos:', e.message); process.exit(1); });
