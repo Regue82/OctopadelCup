@@ -1,6 +1,8 @@
 // OctopadelApp: estáticos + API de torneos en tiempo real (SSE). Railway define PORT y DATABASE_URL.
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { createStore } = require('./store');
+const VERSION = require('./package.json').version;
+const COMMIT = (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7);
 
 const ROOT = path.join(__dirname, 'public');
 const TYPES = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.webmanifest':'application/manifest+json','.json':'application/json','.ico':'image/x-icon'};
@@ -35,7 +37,7 @@ function createServer(store) {
 
   async function api(req, res, url) {
     const parts = url.split('/').filter(Boolean); // ['api', ...]
-    if (req.method === 'GET' && parts[1] === 'health') return json(res, 200, { ok: true, db: store.kind });
+    if (req.method === 'GET' && parts[1] === 'health') return json(res, 200, { ok: true, db: store.kind, version: VERSION, commit: COMMIT });
     const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
     if (req.method === 'POST' && parts[1] === 'login') {
       if (blocked(ip)) return json(res, 429, { error: 'Demasiados intentos. Espera unos minutos.' });
@@ -148,6 +150,6 @@ if (require.main === module) {
   store.init().then(async () => {
     try { await store.purgeDrafts(7); } catch (e) { /* limpieza opcional */ }
     const port = process.env.PORT || 3000;
-    createServer(store).listen(port, '0.0.0.0', () => console.log('OctopadelApp en el puerto ' + port + ' (datos: ' + store.kind + ')'));
+    createServer(store).listen(port, '0.0.0.0', () => console.log('OctopadelApp v' + VERSION + (COMMIT ? ' (' + COMMIT + ')' : '') + ' en el puerto ' + port + ' (datos: ' + store.kind + ')'));
   }).catch(e => { console.error('No se pudo iniciar el almacén de datos:', e.message); process.exit(1); });
 }

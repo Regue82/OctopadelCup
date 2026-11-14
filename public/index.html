@@ -115,15 +115,19 @@ main{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
 .champ .trophy{font-size:2.4rem;line-height:1}.champ .cn{font-size:1.5rem;font-weight:800;margin:4px 0}
 .champ .sub{margin-top:8px;color:var(--mut);font-size:.95rem}
 .live.fin{background:#f3f4f6}
+
+.ver{max-width:980px;margin:0 auto;padding:4px 16px calc(20px + env(safe-area-inset-bottom));text-align:center;color:var(--mut);font-size:.75rem}
 @media print{header,.tabs,.row,.btn,.no-print{display:none!important}body{background:#fff}.card{border:0;padding:0}}
 </style>
 </head>
 <body>
 <header><div class="in"><div class="ball"></div><div><h1>OctopadelApp<small>Pádel americano · todos con todos</small></h1></div><div id="auth" style="margin-left:auto"></div></div></header>
 <main id="app"></main>
+<div id="ver" class="ver"></div>
 
 <script src="vendor/jspdf.umd.min.js"></script>
 <script>
+const APP_VERSION = '2.1.0';
 /* Cuadrantes precalculados (índices de jugador 0..n-1).
    Cada ronda = pistas; cada pista = [pareja A, pareja B].
    8 y 16 jugadores: cada pareja se forma 1 vez y cada rival se enfrenta exactamente 2 veces.
@@ -564,7 +568,9 @@ async function delRemote(path){
     if(!r.ok){const e=await r.json().catch(()=>({}));toast(e.error||'No se pudo');return false;} return true; }catch(e){toast('Sin conexión');return false;}
 }
 async function init(){
-  try{ const r=await fetch('api/health',{cache:'no-store'}); API=r.ok&&(await r.json()).ok===true; }catch(e){ API=false; }
+  let srv=null;
+  try{ const r=await fetch('api/health',{cache:'no-store'}); srv=r.ok?await r.json():null; API=!!(srv&&srv.ok===true); }catch(e){ API=false; }
+  const v=$('#ver'); if(v){ v.textContent='OctopadelApp v'+APP_VERSION+(API?' · servidor v'+(srv.version||'?')+(srv.commit?' ('+srv.commit+')':'')+' · datos: '+srv.db:' · modo sin conexión'); }
   const id=location.hash.replace('#','');
   if(API){
     if(getTok()){ try{ const m=await fetch('api/me',{headers:authH(),cache:'no-store'}); S.admin=m.ok&&(await m.json()).admin===true; if(!S.admin)setTok(''); }catch(e){ S.admin=false; } }

@@ -1,6 +1,6 @@
 {
   "name": "octopadelapp",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "OctopadelApp: cuadrantes de pádel americano en tiempo real (8, 12 y 16 jugadores)",
   "private": true,
   "main": "server.js",
